@@ -1,21 +1,11 @@
 name: Build Release
 on:
   workflow_dispatch:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-  name: Build Release
-on:
-  workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      ...
     steps:
       - uses: actions/checkout@v5
         with:
