@@ -1,0 +1,48 @@
+name: Build Release
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+      - run: chmod +x gradlew
+      - run: ./gradlew assembleLibreRelease
+      - name: Read version
+        id: ver
+        run: |
+          VN=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "name=$VN" >> "$GITHUB_OUTPUT"
+      - name: Sign APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
+          IN=$(find app/build/outputs/apk/libre/release -name '*.apk' | head -1)
+          $ANDROID_HOME/build-tools/$BT/zipalign -p -f 4 "$IN" "$RUNNER_TEMP/aligned.apk"
+          $ANDROID_HOME/build-tools/$BT/apksigner sign \
+            --ks "$RUNNER_TEMP/release.keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+            --out "$RUNNER_TEMP/KeePassDX-signed.apk" "$RUNNER_TEMP/aligned.apk"
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="v${{ steps.ver.outputs.name }}-$(date +%Y%m%d%H%M)"
+          gh release create "$TAG" "${{ runner.temp }}/KeePassDX-signed.apk" \
+            --title "KeePassDX ${{ steps.ver.outputs.name }}" \
+            --notes "Сборка подписана личным ключом."
